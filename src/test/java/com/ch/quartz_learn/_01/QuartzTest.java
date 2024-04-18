@@ -1,4 +1,4 @@
-package com.ch.quartz_learn;
+package com.ch.quartz_learn._01;
 
 import org.quartz.JobDetail;
 import org.quartz.Scheduler;
