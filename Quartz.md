@@ -1,0 +1,421 @@
+# Quartz
+
+# 一、调度器、触发器以及任务详情
+
+调度器调用触发器，触发器调用任务详情，任务详情对应一个具体任务。
+
+其中，调度器和触发器是一对多的关系，触发器和任务详情是多对一的关系，任务详情和任务也是多对一的关系。
+
+![](.\quartz图片\调度器触发器和任务.jpg)
+
+当创建好`Scheduler`后，需要调用`scheduler.start()`来启动调度器，并在定时任务结束后调用`scheduler.shutdown()`。
+
+对于每个任务，我们需要自己编写一个类，该类实现`Job`接口，并重写其`execute()`方法。
+
+同时，我们需要调用`withIdentity`给任务一个`name`以及`group`，`name`是为了标示任务，`group`是为了方便管理。当我们需要对某些任务做相同的调度时，最好用`group`管理起来。触发器也是一样，需要调用`withIdentity`指定`name`以及`group`。若没有指定`group`，`quartz`会统一将`group`声明为`DEFAULT`。若没有指定`name`，则使用`md5`生成唯一序列。
+
+调度器调用某个触发器触发任务时，需要通过`scheduler.scheduleJob(job, trigger)`实现。
+
+~~~java
+package com.ch.quartz_learn;
+import org.quartz.JobDetail;
+import org.quartz.Scheduler;
+import org.quartz.SchedulerException;
+import org.quartz.Trigger;
+import org.quartz.impl.StdSchedulerFactory;
+import java.util.concurrent.TimeUnit;
+import static org.quartz.JobBuilder.*;
+import static org.quartz.TriggerBuilder.*;
+import static org.quartz.SimpleScheduleBuilder.*;
+public class QuartzTest {
+
+    public static void main(String[] args) {
+
+        try {
+            // Grab the Scheduler instance from the Factory
+            Scheduler scheduler = StdSchedulerFactory.getDefaultScheduler();
+
+            // and start it off
+            scheduler.start();
+            JobDetail job = newJob(HelloJob.class)
+                    .withIdentity("job1", "group1")
+                    .build();
+
+            // Trigger the job to run now, and then repeat every 40 seconds
+            Trigger trigger = newTrigger()
+                    .withIdentity("trigger1", "group1")
+                    .startNow()
+                    .withSchedule(simpleSchedule()
+                            .withIntervalInSeconds(5)
+                            .repeatForever())
+                    .build();
+
+            // Tell quartz to schedule the job using our trigger
+            scheduler.scheduleJob(job, trigger);
+            TimeUnit.SECONDS.sleep(20);
+            scheduler.shutdown();
+
+        } catch (SchedulerException se) {
+            se.printStackTrace();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
+
+public class HelloJob implements Job {
+    @Override
+    public void execute(JobExecutionContext jobExecutionContext) throws JobExecutionException {
+        System.out.println("HelloJob.execute  "+ DFUtil.format(new Date())+"  "+Thread.currentThread().getName());
+    }
+}
+~~~
+
+多个触发器的情况：
+
+一般来说Quartz不允许给同一个`JobDetail`分配多个触发器。第一次调用`scheduler.scheduleJob(job, trigger)`会将任务详情和第一个触发器存储在调度器中，第二次调用时会尝试再次存储同一个作业，但是由于两者是同一个任务详情，只是使用了不同的触发器，因此会报错。
+
+要解决这个问题，在创建`trigger`时声明对于的`job`，并手动将`job`缓存进`scheduler`中。
+
+但是要在没有绑定触发器的情况下将`JobDetails`信息持久化时，有一个属性`storeDurably`，如果设置为`true`则无论与其关联的`trigger`是否存在其都会一直存在，否则只要相关联的`trigger`删除掉了其会自动删除掉。所以这里要先设置为`true`。
+
+~~~java
+public class QuartzTest_MultiTrigger {
+
+    public static void main(String[] args) {
+
+        try {
+            // Grab the Scheduler instance from the Factory
+            Scheduler scheduler = StdSchedulerFactory.getDefaultScheduler();
+
+            // and start it off
+            scheduler.start();
+            JobDetail job = newJob(HelloJob.class)
+                    .withIdentity("job1", "group1")
+                    .storeDurably() // 允许在没有绑定触发器的情况下将`JobDetails`信息持久化
+                    .build();
+
+            // Trigger the job to run now, and then repeat every 40 seconds
+            Trigger trigger = newTrigger()
+                    .withIdentity("trigger1", "group1")
+                    .forJob(job)
+                    .startNow()
+                    .withSchedule(simpleSchedule()
+                            .withIntervalInSeconds(1)
+                            .repeatForever())
+                    .build();
+
+            Trigger trigger2 = newTrigger()
+                    .withIdentity("trigger2", "group1")
+                    .forJob(job)
+                    .startNow()
+                    .withSchedule(simpleSchedule()
+                            .withIntervalInSeconds(3)
+                            .repeatForever())
+                    .build();
+            // Tell quartz to schedule the job using our trigger
+            scheduler.addJob(job,true); // 第二个参数`replace`决定了如果在调度器中已经存在一个具有相同标识的任务时，是否应该替换掉已有的任务。
+            scheduler.scheduleJob(trigger);
+            scheduler.scheduleJob(trigger2);
+            TimeUnit.SECONDS.sleep(3);
+            scheduler.shutdown();
+
+        } catch (SchedulerException se) {
+            se.printStackTrace();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
+~~~
+
+通常我们会为某个任务指定两个触发器，一个为自动触发`auto`，一个为手动触发`manual`。
+
+由于自动触发是定时的，比如每天更新物流信息，每天只会更新一次。若数据出现错误，我们需要重新更新时，就需要用手动触发的方式。
+
+
+
+多个任务的情况：
+
+~~~java
+public class QuartzTest_MultiJobDetail {
+
+    public static void main(String[] args) {
+
+        try {
+            // Grab the Scheduler instance from the Factory
+            Scheduler scheduler = StdSchedulerFactory.getDefaultScheduler();
+
+            // and start it off
+            scheduler.start();
+            JobDetail job = newJob(HelloJob.class)
+                    .withIdentity("job1", "group1")
+                    .build();
+
+            JobDetail job2 = newJob(HelloJob.class)
+                    .withIdentity("job2", "group1")
+                    .build();
+            // Trigger the job to run now, and then repeat every 40 seconds
+            Trigger trigger = newTrigger()
+                    .withIdentity("trigger1", "group1")
+                    .startNow()
+                    .withSchedule(simpleSchedule()
+                            .withIntervalInSeconds(1)
+                            .repeatForever())
+                    .build();
+
+            Trigger trigger2 = newTrigger()
+                    .withIdentity("trigger2", "group1")
+                    .startNow()
+                    .withSchedule(simpleSchedule()
+                            .withIntervalInSeconds(3)
+                            .repeatForever())
+                    .build();
+            // Tell quartz to schedule the job using our trigger
+            scheduler.scheduleJob(job,trigger);
+            scheduler.scheduleJob(job2,trigger2);
+            TimeUnit.SECONDS.sleep(3);
+            scheduler.shutdown();
+
+        } catch (SchedulerException se) {
+            se.printStackTrace();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
+~~~
+
+# 二、Trigger
+
+Trigger有四个实现类：
+
+- `SimpleTriggerImpl`
+- `CronTriggerImpl`
+- `CalondarIntervalTriggerImpl`
+- `DailyTimeIntervalTriggerImpl`
+
+其中，前两个用的比较多。尤其是第二个，能解决大部分需求。
+
+`CronTriggerImpl`通过在`CronScheduleBuilder.cronSchedule()`中传入一个`CronExpression`，这是一个正则表达式，用于规定定时规则。
+
+~~~java
+Trigger trigger = newTrigger()
+    .withIdentity("trigger1", "group1")
+    .startNow()
+    .withSchedule(
+    CronScheduleBuilder.cronSchedule(""))
+    .build();
+~~~
+
+其中，该正则表达式有6个固定位置和一个可选位置。格式为`"* * * * * * *"`
+
+每个位置用空格分开，每个位置代表不同的含义，且有不同的允许填入符号和值，如下：
+
+![](D:\学习笔记\quartz图片\CronExepression.jpg)
+
+其中，年为选填参数。
+
+`CronExpression`的规则比较复杂，接下来我们一一介绍这些符号的含义以及用法。
+
+`*`字符用于指定所有值。例如，分钟字段中的`*`表示每分钟。
+
+`?`只有日和星期字段允许使用。它用于指定“无特定值”。用于在两个字段之一中指定某项而不是另一个字段，可以防止冲突。比如当我们指定了日期时，不知道是星期几，为了防止冲突，可以用`?`代替。
+
+`-`字符用于指定范围。例如，小时字段中的”10-12“表示“小时10、11和12”。
+
+`,`字符用于指定其他值。例如，“星期几“字段中的” MON，WED，FRI“"表示”星期一，星期三和星期五的日子”。
+
+`/`字符用于指定增量。例如，秒字段中的” 0/15“表示“秒0、15、30和45”。秒字段中的” 5/15“表示“秒5、20、35和50”。
+
+在`/`之前指定`*`等同干指定0为开头的值。本质上，对于表达式中的每个字段，都有对应的值域。对于秒和分钟，数字范围为0到59。对于小时0到23，对于每月的0到31，以及对于月0到11（JAN到DEC）。`/`字符可以帮助您打开给定集合中的每个“第n个"值。因此，“月“字段中的“7/6"仅打开”7“月，并不意味着每6个月一次，因为6个月后已经是下一年了。请注意这一点。
+
+`L`字符仅在“月“和“周”字段中允许使用。该字符是”last”的简写，但在两个字段中每个都有不同的含义,。例如，“月“字段中的值”L”表示”月的最后一天”，如非润年的1月31日，2月28日。如果单独在”星期几“字段中使用，则仅表示”7“或”SAT”(周六)。但是，如果在星期几字段中使用另一个值，则表示“该月的最后一个xx天“，例如，"6L“表示“该月的最后一个星期五”。还可以指定与该月最后一天的偏移量，例如”L-3“，这表示该月的倒数第三天。使用”L“选项时，不能指定范围，如”1-3L“。
+
+`W`字符仅在"日"字段中允许使用。此字符用于指定最接近给定日期的工作日(星期一至星期五)例如，如果您要指定”15W"作为“日"字段的值，则含义是:"离月15日最近的工作日”。因此，如果15号是星期六，那么触发器将在14号星期五触发。如果15日是星期日，则触发器将在16日星期一触发。如果15号是星期二，那么它将在15号星期二触发。但是，如果您将”1W“指定为月份的值，而第1个是星期六，则触发器将在第3天，即星期一触发，而不是上个月的月底，即周五触发。因为它不会“跳过”一个月的边界。该符号同样不能指定范围。
+
+还可将“L”和” W"字符组合为一个月中的一天的表达式，如”LW"，这表示“该月的最后一个工作日”。
+
+`#`字符“仅在"星期"字段允许使用。此字符用于指定月份的“第n个"XXX天。例如，“星期几“字段中的”6#3”的值表示该月的第三个星期五(第6天=星期五，"#3”=该月的第三个星期五)。但是注意，如果您指定”#5”，并且该月的指定星期几中没有5个，则该月将不会触发。如果使用”#“字符，则“星期几”字段中只能有一个表达式("3#1,6#3”无效，因为有两个表达式)。
+
+支持溢出范围-也就是说，左侧的数字大于右侧的数字。您可能会在晚上10点到凌晨2点做22-2。
+
+# 三、传参
+
+当我们需要传递一些参数给`Job`时，我们没办法通过构造器或者函数的参数传入，因为`Job`是`quartz`框架通过调用无参构造器帮我们创建的，他并不知道我们想要什么参数。因此，我们可以通过`JobDetail`和`Trigger`来传递参数。
+
+对于`JobDetail`和`Trigger`而言，他们各自维护者一个`JobDataMap`，并且允许他们在构造过程往其中放入参数。
+
+`JobExecutionContext`中可以获取到`JobDetail`和`Trigger`合并起来的`Map`，如果其中有相同的`key`，则以`Trigger`的优先
+
+~~~java
+public class QuartzTest_Data {
+
+    public static void main(String[] args) {
+
+        try {
+            // Grab the Scheduler instance from the Factory
+            Scheduler scheduler = StdSchedulerFactory.getDefaultScheduler();
+
+            // and start it off
+            scheduler.start();
+            JobDetail job = newJob(DataJob.class)
+                    .withIdentity("job1", "group1")
+                    .usingJobData("haha","I am JobDetail") // 传入参数
+                    .build();
+
+            // Trigger the job to run now, and then repeat every 40 seconds
+            Trigger trigger = newTrigger()
+                    .withIdentity("trigger1", "group1")
+                    .usingJobData("haha","I am Trigger") // 传入参数
+                    .startNow()
+                    .withSchedule(
+                            CronScheduleBuilder.cronSchedule("0/5 * * * * ? *")
+                    )
+                    .build();
+
+            // Tell quartz to schedule the job using our trigger
+            scheduler.scheduleJob(job, trigger);
+            TimeUnit.SECONDS.sleep(10);
+            scheduler.shutdown();
+
+        } catch (SchedulerException se) {
+            se.printStackTrace();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
+
+public class DataJob implements Job {
+    @Override
+    public void execute(JobExecutionContext jobContext) throws JobExecutionException {
+        JobDetail jobDetail = jobContext.getJobDetail();
+        Trigger trigger = jobContext.getTrigger();
+        StringJoiner outStr = new StringJoiner(" ")
+                .add("HelloJob.execute")
+                .add(DFUtil.format(new Date()))
+                .add(Thread.currentThread().getName())
+                .add(jobContext.getTrigger().getKey().getName());
+        System.out.println(outStr);
+        System.out.println(jobDetail.getJobDataMap().get("haha"));
+        System.out.println(trigger.getJobDataMap().get("haha"));
+        System.out.println(jobContext.getMergedJobDataMap().get("haha"));
+    }
+}
+// 结果
+I am JobDetail
+I am Trigger
+I am Trigger
+~~~
+
+# 四、注入Bean
+
+如果我们使用了`Spring`框架，那么当我们需要在`Job`中注入`Bean`的时候，该怎么做呢？
+
+~~~java
+@Component
+public class SpringBeanJob implements Job {
+    @Autowired
+    HelloService helloService;
+    @Override
+    public void execute(JobExecutionContext jobContext) throws JobExecutionException {
+        JobDetail jobDetail = jobContext.getJobDetail();
+        Trigger trigger = jobContext.getTrigger();
+        StringJoiner outStr = new StringJoiner(" ")
+                .add("HelloJob.execute")
+                .add(DFUtil.format(new Date()))
+                .add(Thread.currentThread().getName())
+                .add(jobContext.getTrigger().getKey().getName());
+        System.out.println(outStr);
+    }
+}
+~~~
+
+如果采用这种方式，是注入不了的。因为`Job`的是`quartz`帮我们创建的，`quartz`并不知道`@Autowired`是啥，也不知道`@Component`，不懂怎么注入`Bean`。
+
+有两种解决方法：
+
+① 纯`quartz`方案
+
+添加一个工具类，用于获取`Spring`的上下文
+
+~~~java
+@Component
+public class SpringContextUtil implements ApplicationContextAware {
+    private static ApplicationContext applicationContext;
+    @Override
+    public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+        SpringContextUtil.applicationContext =applicationContext;
+    }
+
+    public static ApplicationContext getApplicationContext() {
+        return applicationContext;
+    }
+}
+~~~
+
+在`Job`中通过上下文获取对应类的`bean`
+
+~~~java
+public class SpringBeanJob implements Job {
+    HelloService helloService;
+    @Override
+    public void execute(JobExecutionContext jobContext) throws JobExecutionException {
+        JobDetail jobDetail = jobContext.getJobDetail();
+        Trigger trigger = jobContext.getTrigger();
+        StringJoiner outStr = new StringJoiner(" ")
+                .add("HelloJob.execute")
+                .add(DFUtil.format(new Date()))
+                .add(Thread.currentThread().getName())
+                .add(jobContext.getTrigger().getKey().getName());
+        System.out.println(outStr);
+        helloService= (HelloService) SpringContextUtil.getApplicationContext()
+                .getBean(StringUtils.uncapitalize(HelloService.class.getSimpleName())); // 获取bean
+        System.out.println(helloService);
+    }
+}
+~~~
+
+由于使用了`Spring`，因此我们要更改启动方式
+
+~~~java
+@SpringBootTest
+public class QuartzTest_SpringBean {
+    @Test
+    public void test(){
+        try {
+            // Grab the Scheduler instance from the Factory
+            Scheduler scheduler = StdSchedulerFactory.getDefaultScheduler();
+
+            // and start it off
+            scheduler.start();
+            JobDetail job = newJob(SpringBeanJob.class)
+                    .withIdentity("job1", "group1")
+                    .usingJobData("haha","I am JobDetail")
+                    .build();
+
+            // Trigger the job to run now, and then repeat every 40 seconds
+            Trigger trigger = newTrigger()
+                    .withIdentity("trigger1", "group1")
+                    .usingJobData("haha","I am Trigger")
+                    .startNow()
+                    .withSchedule(
+                            CronScheduleBuilder.cronSchedule("0/1 * * * * ? *")
+                    )
+                    .build();
+
+            // Tell quartz to schedule the job using our trigger
+            scheduler.scheduleJob(job, trigger);
+            TimeUnit.SECONDS.sleep(1);
+            scheduler.shutdown();
+
+        } catch (SchedulerException se) {
+            se.printStackTrace();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+    }
+}
+~~~
+
