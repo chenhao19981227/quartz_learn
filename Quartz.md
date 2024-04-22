@@ -448,3 +448,9 @@ public class QuartzTest_SpringBean {
 }
 ~~~
 
+# 五、quartz.properties
+
+配置文件，用于配置各种参数。
+
+具体的可以上官网查。
+
