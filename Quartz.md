@@ -309,6 +309,35 @@ I am Trigger
 I am Trigger
 ~~~
 
+另一种传参方式：
+
+我们可以通过在`DataJob`中定义变量，并提供`set()`方法来获取参数值。`quartz`在创建`Job`是会帮你检测`JobDetail`和`Trigger`有无对应的`key`，如果有则调用`set()`方法来注入对应的值。
+
+~~~java
+public class DataJob2 implements Job {
+    private String haha;
+
+    public void setHaha(String haha) {
+        this.haha = haha;
+    }
+
+    @Override
+    public void execute(JobExecutionContext jobContext) throws JobExecutionException {
+        JobDetail jobDetail = jobContext.getJobDetail();
+        Trigger trigger = jobContext.getTrigger();
+        StringJoiner outStr = new StringJoiner(" ")
+                .add("HelloJob.execute")
+                .add(DFUtil.format(new Date()))
+                .add(Thread.currentThread().getName())
+                .add(jobContext.getTrigger().getKey().getName());
+        System.out.println(outStr);
+        System.out.println(haha); // I am Trigger
+    }
+}
+~~~
+
+
+
 # 四、注入Bean
 
 如果我们使用了`Spring`框架，那么当我们需要在`Job`中注入`Bean`的时候，该怎么做呢？
