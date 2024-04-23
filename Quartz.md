@@ -365,7 +365,7 @@ public class SpringBeanJob implements Job {
 
 有两种解决方法：
 
-① 纯`quartz`方案
+## ① 纯`quartz`方案
 
 添加一个工具类，用于获取`Spring`的上下文
 
@@ -447,6 +447,87 @@ public class QuartzTest_SpringBean {
     }
 }
 ~~~
+
+## ② SpringBoot集成`quartz`
+
+首先需要在`SpringBoot`中配置`quartz`
+
+~~~xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-quartz</artifactId>
+</dependency>
+~~~
+
+在`SpringBoot`的starter中会帮我们注册一个`scheduler`，因此我们可以直接注入。
+
+之前提到，`Job`的是`quartz`帮我们创建的，`quartz`并不知道`@Autowired`是啥，也不知道`@Component`，不懂怎么注入`Bean`。所以`SpringBoot`提供了一个类供我们继承：`QuartzJobBean`。我们不再需要实现`Job`接口。这样一来，当我们创建`Job`时，`SpringBoot`便可以感知到。
+
+~~~java
+public class SpringBeanJob2 extends QuartzJobBean {
+    @Autowired
+    HelloService helloService;
+    @Override
+    protected void executeInternal(JobExecutionContext context) throws JobExecutionException {
+        StringJoiner outStr = new StringJoiner(" ")
+                .add("HelloJob.execute")
+                .add(DFUtil.format(new Date()))
+                .add(Thread.currentThread().getName())
+                .add(context.getTrigger().getKey().getName());
+        System.out.println(outStr);
+        System.out.println(helloService.helloService());
+    }
+}
+// 写一个配置类绑定JobDetail和Trigger
+@Component
+public class JobInit {
+    @Autowired
+    Scheduler scheduler;
+    @PostConstruct
+    public void initJob() throws SchedulerException {
+        JobDetail jobDetail= JobBuilder.newJob(SpringBeanJob2.class)
+                .build();
+        Trigger trigger= TriggerBuilder.newTrigger()
+                .startNow()
+                .build();
+        scheduler.scheduleJob(jobDetail,trigger);
+    }
+}
+// 然后启动SpringBoot即可
+@SpringBootApplication
+public class QuartzLearnApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(QuartzLearnApplication.class, args);
+    }
+}
+~~~
+
+并且`SpringBoot`还可以帮我们自动将`JobDetail`、`Trigger`与`scheduler`绑定，我们可以通过写一个配置类，并在配置类中定义对应的`Bean`来实现。
+
+~~~java
+@Configuration
+public class JobConfig {
+    @Bean
+    public JobDetail springJobDetail(){
+        return JobBuilder.newJob(SpringBeanJob2.class)
+                .withIdentity("springJobDetail")
+                .storeDurably()
+                .build();
+    }
+    @Bean
+    public Trigger springJobTrigger(){
+        return TriggerBuilder.newTrigger()
+                .forJob("springJobDetail")
+                .startNow()
+                .build();
+    }
+}
+~~~
+
+不过这种做法缺点比较明显，一个是当你的任务多起来的时候，`JobDetail`、`Trigger`与`scheduler`之间的关系不好处理，毕竟是`SpringBoot`帮你调度的。
+
+第二个是定于`JobDetail`、`Trigger`的方法名不好起，因为`SpringBoot`是直接用你的方法名来起名字的。
 
 # 五、quartz.properties
 
