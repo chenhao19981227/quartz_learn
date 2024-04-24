@@ -535,3 +535,51 @@ public class JobConfig {
 
 具体的可以上官网查。
 
+# 六、持久化
+
+如果我们不做设置，`quartz`默认将运行过程中产生的数据放在内存中，比如产生的`Trigger`、`scheduler`、执行次数、成功案例数、失败案例数等信息。
+
+为了方便查看当前项目的调度情况，以及后期追踪异常，我们通常会将这些信息做持久化，保存到数据库中。
+
+`quartz`框架帮我们实现了这一点，并且`Spring`也支持`quartz`的持久化，我们只需简单的进行配置即可实现。
+
+~~~yml
+spring:
+  application:
+    name: quartz_learn
+  datasource:
+    username: root
+    password: 123456
+    url: jdbc:mysql://localhost:3306/quartz_learn?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  quartz:
+    jdbc:
+      initialize-schema: always 
+    job-store-type: jdbc
+~~~
+
+`job-store-type`表示存储方式采用`jdbc`而不是缓存。`initialize-schema`表示每次重新启动`quartz`都会重置数据库中的表格。
+
+一旦我们启动`quartz`后，数据库中就会自行创建多张表格来存储信息，而每当有作业完成后，就会有新的记录被添加到各个表中。
+
+此时quartz与我们的SpringBoot项目共用一个Datasource，毕竟我们是在spring中进行的配置。如果我们想为`quartz`配置独立的数据源，那就可以通过`@Bean`+`@QuartzDataSource`来声明
+
+~~~java
+@Configuration
+public class JobConfig {
+    @Bean
+    @QuartzDataSource
+    public DataSource qDatasource(){
+        DriverManagerDataSource dataSource= new DriverManagerDataSource();
+        dataSource.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        dataSource.setUsername("root");
+        dataSource.setPassword("123456");
+        dataSource.setUrl("jdbc:mysql://localhost:3306/quartz_learn?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC");
+        return dataSource;
+    }
+}
+~~~
+
+
+
