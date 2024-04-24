@@ -15,6 +15,10 @@ public class JobInit {
         JobDetail jobDetail= JobBuilder.newJob(SpringBeanJob2.class)
                 .build();
         Trigger trigger= TriggerBuilder.newTrigger()
+                .withSchedule(SimpleScheduleBuilder
+                        .simpleSchedule()
+                        .withIntervalInSeconds(3)
+                .repeatForever())
                 .startNow()
                 .build();
         scheduler.scheduleJob(jobDetail,trigger);
