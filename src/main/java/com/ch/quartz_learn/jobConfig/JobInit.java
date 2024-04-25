@@ -6,21 +6,21 @@ import org.quartz.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-@Component
+//@Component
 public class JobInit {
-    @Autowired
-    Scheduler scheduler;
-    @PostConstruct
-    public void initJob() throws SchedulerException {
-        JobDetail jobDetail= JobBuilder.newJob(SpringBeanJob2.class)
-                .build();
-        Trigger trigger= TriggerBuilder.newTrigger()
-                .withSchedule(SimpleScheduleBuilder
-                        .simpleSchedule()
-                        .withIntervalInSeconds(3)
-                .repeatForever())
-                .startNow()
-                .build();
-        scheduler.scheduleJob(jobDetail,trigger);
-    }
+//    @Autowired
+//    Scheduler scheduler;
+//    @PostConstruct
+//    public void initJob() throws SchedulerException {
+//        JobDetail jobDetail= JobBuilder.newJob(SpringBeanJob2.class)
+//                .build();
+//        Trigger trigger= TriggerBuilder.newTrigger()
+//                .withSchedule(SimpleScheduleBuilder
+//                        .simpleSchedule()
+//                        .withIntervalInSeconds(3)
+//                .repeatForever())
+//                .startNow()
+//                .build();
+//        scheduler.scheduleJob(jobDetail,trigger);
+//    }
 }
