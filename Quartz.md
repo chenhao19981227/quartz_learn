@@ -581,5 +581,112 @@ public class JobConfig {
 }
 ~~~
 
+# 七、集群
 
+集群的前提是持久化，否则两个quartz实例之间是相互独立的。
+
+想要使用集群，只需设置下面的属性：
+
+~~~properties
+org.quartz.jobStore.isClustered = true // 声明使用集群
+org.quartz.scheduler.instanceName = MyClusteredScheduler
+org.quartz.scheduler.instanceId  = AUTO
+~~~
+
+同一个集群的`instanceName`必须相同，而集群中的不同实例需要设置不同的`instanceName`，如果不想自己起名字，那就设置为`AUTO`即可。
+
+需要注意的是，quartz是每次调度都可能在不同的实例上。比如一个定时任务每5秒重复一次，每次重复都可能在不同的实例上的。
+
+集群搭建：
+
+父配置文件：
+
+~~~yml
+spring:
+  application:
+    name: quartz_learn
+  datasource:
+    username: root
+    password: 123456
+    url: jdbc:mysql://localhost:3306/quartz_learn?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  quartz:
+    jdbc:
+      initialize-schema: always
+    job-store-type: jdbc
+    properties:
+      org.quartz.jobStore.isClustered: true
+~~~
+
+子配置文件`application-1.yml`
+
+~~~yml
+spring:
+  properties:
+    org.quartz.scheduler.instanceName: OrderService
+    org.quartz.scheduler.instanceId: order-1
+~~~
+
+`application-2.yml`
+
+~~~yml
+spring:
+  properties:
+    org.quartz.scheduler.instanceName: OrderService
+    org.quartz.scheduler.instanceId: order-2
+~~~
+
+然后再配置项目的启动项，包括：
+
+修改`Name`和在`VM Option`中添加`-Dspring.profiles.active=1`以及添加主程序`com.ch.quartz_learn.QuartzLearnApplication`。他会根据你配置文件名称中`-`后面的内容来识别，比如`application-1.yml`，则对应`-Dspring.profiles.active=1`。
+
+启动之前要记得清空数据库中`quartz`相关的表，否则会异常。
+
+写三个定时任务，每五秒执行一次：
+
+~~~java
+@Component
+public class JobClusterInit {
+    @Autowired
+    public Scheduler scheduler;
+
+    @PostConstruct
+    public void initJob() throws SchedulerException{
+        startSpringJob("job-1","trigger-1");
+        startSpringJob("job-2","trigger-2");
+        startSpringJob("job-3","trigger-3");
+    }
+
+    private void startSpringJob(String jobName, String triggerName) throws SchedulerException {
+        JobDetail detail= JobBuilder.newJob(SpringBeanJob2.class)
+                .withIdentity(jobName)
+                .build();
+        Trigger trigger=TriggerBuilder.newTrigger()
+                .withIdentity(triggerName)
+                .startNow()
+                .withSchedule(SimpleScheduleBuilder.repeatSecondlyForever(5))
+                .build();
+        scheduler.scheduleJob(detail,trigger);
+    }
+}
+~~~
+
+在启动入口打印`instanceId`
+
+~~~java
+@SpringBootApplication
+public class QuartzLearnApplication {
+   @Value("${spring.properties.org.quartz.scheduler.instanceId}")
+    private String instanceId;
+    @PostConstruct
+    public void printInstanceId(){
+        System.out.println(instanceId);
+    }
+    public static void main(String[] args) {
+        SpringApplication.run(QuartzLearnApplication.class, args);
+    }
+
+}
+~~~
 
