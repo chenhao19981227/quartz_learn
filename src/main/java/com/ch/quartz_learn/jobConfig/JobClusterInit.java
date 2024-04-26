@@ -4,18 +4,24 @@ import com.ch.quartz_learn.job.SpringBeanJob2;
 import jakarta.annotation.PostConstruct;
 import org.quartz.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import java.util.Set;
 
 @Component
 public class JobClusterInit {
+    @Value("${spring.properties.org.quartz.scheduler.instanceId}")
+    private String instanceId;
     @Autowired
     public Scheduler scheduler;
-
     @PostConstruct
     public void initJob() throws SchedulerException{
-        startSpringJob("job-1","trigger-1");
-        startSpringJob("job-2","trigger-2");
-        startSpringJob("job-3","trigger-3");
+        if(instanceId.equals("order-1")){
+            startSpringJob("job-1","trigger-1");
+            startSpringJob("job-2","trigger-2");
+            startSpringJob("job-3","trigger-3");
+        }
     }
 
     private void startSpringJob(String jobName, String triggerName) throws SchedulerException {
