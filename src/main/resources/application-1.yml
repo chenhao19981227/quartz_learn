@@ -3,3 +3,7 @@ spring:
   properties:
     org.quartz.scheduler.instanceName: OrderService
     org.quartz.scheduler.instanceId: order-1
+
+  quartz:
+    jdbc:
+      initialize-schema: always

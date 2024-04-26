@@ -2,3 +2,6 @@ spring:
   properties:
     org.quartz.scheduler.instanceName: OrderService
     org.quartz.scheduler.instanceId: order-2
+  quartz:
+    jdbc:
+      initialize-schema: never

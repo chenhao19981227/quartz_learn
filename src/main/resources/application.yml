@@ -8,8 +8,6 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   quartz:
-    jdbc:
-      initialize-schema: always
     job-store-type: jdbc
     properties:
       org.quartz.jobStore.isClustered: true
