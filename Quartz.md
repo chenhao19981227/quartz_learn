@@ -686,7 +686,48 @@ public class QuartzLearnApplication {
     public static void main(String[] args) {
         SpringApplication.run(QuartzLearnApplication.class, args);
     }
-
 }
 ~~~
+
+但是这里还有一个问题，我们每次启动一个实例都会运行一次初始化代码：`JobClusterInit`。而因为我们将参数`quartz.jdbc.initialize-schema`设置成了`always`，所以每次都会重置数据库中的任务，以及任务的启动时间。比如我们启动实例1，时间为0秒，那么下一次调度的时间是05秒。但是如果我们在第3秒启动了实例2，这个时候启动时间就会被重置为第3秒，下一次调度的时间就变成08秒了。
+
+要解决这个问题，我们需要将后续启动的quartz实例的`quartz.jdbc.initialize-schema`属性设置为`false`。
+
+其次，我们需要将让启动流程只执行一次。我的做法是在任务初始化的代码中加一个判断：
+
+~~~java
+@Component
+public class JobClusterInit {
+    @Value("${spring.properties.org.quartz.scheduler.instanceId}")
+    private String instanceId;
+    @Autowired
+    public Scheduler scheduler;
+    @PostConstruct
+    public void initJob() throws SchedulerException{
+        if(instanceId.equals("order-1")){
+            startSpringJob("job-1","trigger-1");
+            startSpringJob("job-2","trigger-2");
+            startSpringJob("job-3","trigger-3");
+        }
+    }
+
+    private void startSpringJob(String jobName, String triggerName) throws SchedulerException {
+        JobDetail detail= JobBuilder.newJob(SpringBeanJob2.class)
+                .withIdentity(jobName)
+                .build();
+        Trigger trigger=TriggerBuilder.newTrigger()
+                .withIdentity(triggerName)
+                .startNow()
+                .withSchedule(SimpleScheduleBuilder.repeatSecondlyForever(5))
+                .build();
+        scheduler.scheduleJob(detail,trigger);
+    }
+}
+~~~
+
+我这里是去配置文件获取`instanceId`并判断是否是第一个实例，只有第一个实例需要初始化作业。
+
+也可以写一个`Controller`来解决这个问题。不过我觉得我的方法比较方便。
+
+
 
